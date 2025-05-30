@@ -1,0 +1,1299 @@
+---
+title: "Time Series Modelling of Neuronological data"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+
+```{r}
+library(forecast)
+library(MTS)
+library(igraph)
+library(vars)
+library(tseries)
+
+#install.packages("pracma")  # If not already installed
+library(pracma)
+
+
+
+```
+
+```{r}
+
+
+
+firing_param15_Awake=read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param15_Awake.csv")
+
+
+ccm(firing_param15_Awake)
+ts.plot(firing_param15_Awake$VPM)
+
+
+
+```
+
+```{r}
+VPM=window(firing_param15_Awake$VPM,start = 1,end=1000)
+plot.ts(VPM)
+Acf(VPM)
+Pacf(VPM)
+```
+
+```{r}
+
+LD=window(firing_param15_Awake$LD,start = 1,end=1000)
+plot.ts(LD)
+Acf(LD)
+Pacf(LD)
+```
+
+```{r}
+
+PO=window(firing_param15_Awake$PO,start = 1,end=1000)
+plot.ts(PO)
+Acf(PO)
+Pacf(PO)
+```
+
+```{r}
+auto.arima(firing_param15_Awake$VPM, d=0, stationary=TRUE)
+```
+
+```{r}
+
+t1=auto.arima(firing_param15_Awake$VPM)
+summary(t1)
+t2=auto.arima(firing_param15_Awake$PO)
+t3=auto.arima(firing_param15_Awake$LD)
+summary(t2)
+summary(t3)
+
+```
+
+```{r}
+Box.test(t1$residuals,type=c("Box-Pierce"))
+Box.test(t2$residuals,type=c("Box-Pierce"))
+Box.test(t3$residuals,type=c("Box-Pierce"))
+
+```
+
+```{r}
+
+VPM_awake_15=window(firing_param15_Awake$VPM,start = 1,end=8000)
+LD_awake_15=window(firing_param15_Awake$LD,start = 1,end=8000)
+PO_awake_15=window(firing_param15_Awake$PO,start = 1,end=8000)
+
+df=firing_data=data.frame(VPM_awake_15,LD_awake_15,PO_awake_15)
+colnames(firing_data)=c("VPM","LD","PO")
+#var()
+mq(df)
+#df
+plot.ts(firing_data)
+```
+
+```{r}
+adf.test(firing_param15_Awake$VPM)
+```
+
+```{r}
+
+adf.test(df$VPM_awake_15) # to check stationarity 
+adf.test(df$LD_awake_15)
+adf.test(df$PO_awake_15)
+```
+
+🔍 **Quick Overview: Hurst Exponent (H)**\
+The Hurst exponent $H \in (0, 1)$ gives insight into the **persistence** or **anti-persistence** of a time series:
+
+| **H value** | **Interpretation**                              |
+|------------:|-------------------------------------------------|
+|   $H = 0.5$ | Pure random walk (no memory)                    |
+|   $H < 0.5$ | Anti-persistent (mean-reverting)                |
+|   $H > 0.5$ | Persistent (long-term positive autocorrelation) |
+
+```{r}
+
+
+hurstexp(df$VPM_awake_15)
+
+
+```
+
+✅ **Takeaway for `df$VPM_15_awake1`**:
+
+-   All Hurst estimates are **significantly \> 0.5**, with corrected values near **0.9**
+-   🔁 Indicates **very strong long-term memory** and persistence in the time series
+-   🔬 Suggests **structured, temporally correlated neural activity** --- not just random fluctuations
+
+```{r}
+hurstexp(df$LD_awake_15)
+#hurstexp(df$PO_15_awake1)
+```
+
+```{r}
+#hurstexp(df$LD_15_awake)
+hurstexp(df$PO_awake_15)
+```
+
+```{r selecting VAR order}
+
+#VARorder(firing_param15_Awake)
+VARorder(df)
+
+#m1=VAR(firing_param15_Awake,p=1)
+
+
+
+```
+
+```{r}
+m1=VAR(df,p=10)
+```
+
+```{r}
+summary(m1)
+```
+
+```{r}
+root=vars::roots(m1)
+#class(m1)
+#m1%>%roots()
+plot.ts(root)  ## roots are are <1 which implies satbility of the model
+
+```
+
+### Interpretation of `vars::roots(m1)` Output
+
+-   Each number represents the **modulus (absolute value) of the eigenvalues** of the companion matrix of your VAR model.
+-   For a VAR model to be **stable (stationary)**, all of these eigenvalue moduli must be **less than 1**.
+-   In your case, the **largest root is 0.9578**, which is below 1, so the stability condition is satisfied.
+
+### Practical Implications
+
+-   **Impulse Response Functions (IRFs):** we can safely compute IRFs since the system is stable.
+-   **Forecasting:** The model can be used for reliable forecasting.
+-   **Granger Causality Analysis:** The dynamic relationships inferred from the model are meaningful, as the system does not exhibit explosive behavior.
+-   **Stationarity:** There is no need for further differencing or transformation---the ADF tests and the eigenvalue analysis both confirm stationarity.
+
+Overall, our model is well-specified and meets the necessary stability criteria.
+
+```{r}
+
+serial.test(m1, type = "PT.adjusted")
+
+causality(m1,"VPM_awake_15")
+
+causality(m1,"LD_awake_15")
+
+causality(m1,"PO_awake_15")
+```
+
+```{r}
+# Load necessary library
+library(igraph)
+
+# Define the nodes (variables)
+nodes <- c("VPM", "LD", "PO")
+
+# Define the edges based on Granger causality (significant p-values)
+edges <- c(
+  "VPM", "LD",  # VPM → LD (Granger causality)
+  "VPM", "PO",  # VPM → PO (Granger causality)
+  "LD", "VPM",  # LD → VPM (Granger causality)
+  "LD", "PO",  # LD → PO (Granger causality)
+  "PO", "VPM",  # PO → VPM (Granger causality)
+  "PO", "LD"   # PO → LD (Granger causality)
+)
+
+# Create a directed graph based on the edges
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 50,                  # Size of the vertices
+     vertex.label.cex = 1.2,            # Size of the labels
+     vertex.color = "white",        # Color of the nodes
+     edge.arrow.size = 0.6,             # Size of the arrows
+     main = "Granger Causality Network (15 Awake)"
+)
+
+```
+
+```{r}
+# Load library
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",
+  "VPM", "PO",
+  "LD", "VPM",
+  "LD", "PO",
+  "PO", "VPM",
+  "PO", "LD"
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (15 μA, Awake)"
+)
+
+```
+
+### firing_param15_ISO
+
+```{r}
+
+firing_param15_ISO=read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param15_ISO.csv")
+
+```
+
+```{r}
+
+
+VPM=window(firing_param15_ISO$VPM,start = 1,end=8000)
+LD=window(firing_param15_ISO$LD,start = 1,end=8000)
+PO=window(firing_param15_ISO$PO,start = 1,end=8000)
+
+under_Anesthesia=data.frame(VPM,LD,PO)
+
+plot.ts(under_Anesthesia)
+```
+
+```{r}
+hurstexp(VPM)
+```
+
+```{r}
+hurstexp(LD)
+```
+
+```{r}
+hurstexp(PO)
+```
+
+### Stationarity checks
+
+```{r}
+
+adf.test(under_Anesthesia$VPM
+         ) # to check stationarity 
+adf.test(under_Anesthesia$LD)
+adf.test(under_Anesthesia$PO)
+#var()
+
+```
+
+### Multivariate LJung Box Test
+
+```{r}
+
+mq(under_Anesthesia)
+
+```
+
+```{r}
+ccm(under_Anesthesia)
+```
+
+```{r}
+VARorder(under_Anesthesia)
+```
+
+```{r}
+model_ISO_15=VAR(under_Anesthesia,p=8)
+
+
+
+
+```
+
+```{r}
+summary(model_ISO_15)
+```
+
+```{r}
+
+# model statbility
+vars::roots(model_ISO_15)
+```
+
+```{r}
+serial.test(model_ISO_15)
+
+```
+
+```{r}
+causality(model_ISO_15,"VPM")
+causality(model_ISO_15,"LD")
+causality(model_ISO_15,"PO")
+
+
+```
+
+```{r}
+# Define simplified nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c("VPM", "LD",
+           "VPM", "PO",
+           "LD", "VPM",
+           "LD", "PO",
+           "PO", "VPM",
+           "PO", "LD")
+
+# Create a directed graph
+g <- graph(edges = edges, directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.color = "lightblue",
+     vertex.size = 50,
+     vertex.label.cex = 1.5,
+     edge.arrow.size = 0.6,
+     edge.color = "gray40",
+     main = "Granger Causality Network (15 ISO ) ")
+```
+
+```{r}
+# Load library
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",
+  "VPM", "PO",
+  "LD", "VPM",
+  "LD", "PO",
+  "PO", "VPM",
+  "PO", "LD"
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (15 μA ISO ) "
+)
+
+```
+
+### firing_param15_Recovery
+
+```{r}
+
+
+firing_param15_Recovery=read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param15_Recovery.csv")
+
+VPM_15_R=firing_param15_Recovery$VPM
+LD_15_R=firing_param15_Recovery$LD
+PO_15_R=firing_param15_Recovery$PO
+
+
+df_Recovery_15=data.frame(VPM_15_R,LD_15_R,PO_15_R)
+
+plot.ts(df_Recovery_15,main="Recovery firing pattern")
+```
+
+```{r}
+
+```
+
+```{r}
+hurstexp(df_Recovery_15$VPM_15_R)
+```
+
+```{r}
+hurstexp(df_Recovery_15$LD_15_R)
+```
+
+```{r}
+hurstexp(df_Recovery_15$PO_15_R)
+```
+
+```{r}
+VARorder(df_Recovery_15)
+```
+
+```{r}
+
+#model_Recovery_15=VARMA(df_Recovery_15,p=5,q=1)
+#serial.test(model_Recovery_15)
+
+
+
+library(MTS)
+
+#reduced_data=data.frame()
+# Assuming you've already fit your VARMA model:
+#VARorder(reduced_data)
+#model_Recovery_15=VAR(reduced_data,p=8)
+model_Recovery_15 <- VAR(df_Recovery_15, p=11)
+
+
+```
+
+```{r}
+# Check residual diagnostics
+#mq(model_Recovery_15)
+
+
+serial.test(model_Recovery_15)
+
+#MTSdiag(model_Recovery_15)
+
+```
+
+```{r}
+summary(model_Recovery_15)
+```
+
+```{r}
+causality(model_Recovery_15,"VPM_15_R")
+
+
+causality(model_Recovery_15,"LD_15_R")
+
+causality(model_Recovery_15,"PO_15_R")
+
+```
+
+```{r}
+
+
+# Required libraries
+library(igraph)
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# Format: from -> to
+edges <- c(
+  "VPM", "LD",
+  "VPM", "PO",
+  "LD", "VPM",
+  "LD", "PO",
+  "PO", "VPM",
+  "PO", "LD"
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 40,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (15 Recovery)")
+
+```
+
+```{r}
+# Load library
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",
+  "VPM", "PO",
+  "LD", "VPM",
+  "LD", "PO",
+  "PO", "VPM",
+  "PO", "LD"
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (15 Recovery)"
+)
+
+```
+
+### For parameter 35
+
+```{r}
+
+# Read the CSV file
+firing_param35_Awake <- read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param35_Awake.csv")
+
+# Create a new data frame with specific columns
+df_Awake_35 <- data.frame(
+  VPM = firing_param35_Awake$VPM,
+  LD = firing_param35_Awake$LD,
+  PO = firing_param35_Awake$PO
+)
+
+# Set column names explicitly if needed
+colnames(df_Awake_35) <- c("VPM_35_A", "LD_35_A", "PO_35_A")
+
+df_Awake_35
+
+```
+
+### Hurtexp for longterm dependences
+
+```{r}
+hurstexp(df_Awake_35$VPM_35_A)
+
+```
+
+```{r}
+
+hurstexp(df_Awake_35$LD_35_A)
+```
+
+```{r}
+
+hurstexp(df_Awake_35$PO_35_A)
+
+```
+
+```{r}
+
+```
+
+```{r}
+VARorder(df_Awake_35)
+```
+
+```{r}
+
+model_Awake_35=VAR(df_Awake_35,p=13)
+
+serial.test(model_Awake_35)
+```
+
+```{r}
+#mq(df_Awake_35)
+
+causality(model_Awake_35,"VPM_35_A")
+causality(model_Awake_35,"LD_35_A")
+causality(model_Awake_35,"PO_35_A")
+
+
+```
+
+```{r}
+
+# Required libraries
+library(igraph)
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# From the provided results, we have the following significant edges:
+edges <- c(
+  "VPM", "LD",  # VPM_35_A Granger-causes LD_35_A
+  "VPM", "PO",  # VPM_35_A Granger-causes PO_35_A
+  "LD", "VPM",  # LD_35_A Granger-causes VPM_35_A
+  "LD", "PO"   # LD_35_A Granger-causes PO_35_A
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 50,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (35 Awake)",
+     layout = layout_in_circle)
+
+```
+
+```{r}
+# Load library
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",  # VPM_35_A Granger-causes LD_35_A
+  "VPM", "PO",  # VPM_35_A Granger-causes PO_35_A
+  "LD", "VPM",  # LD_35_A Granger-causes VPM_35_A
+  "LD", "PO"   # LD_35_A Granger-causes PO_35_A
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (35 μA, Awake)"
+)
+
+```
+
+### For ISO 35
+
+```{r}
+
+
+# Read the CSV file
+firing_param35_ISO <- read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param35_ISO.csv")
+
+# Create a new data frame with specific columns
+df_ISO_35 <- data.frame(
+  VPM = firing_param35_ISO$VPM,
+  LD = firing_param35_ISO$LD,
+  PO = firing_param35_ISO$PO
+)
+
+# Set column names explicitly if needed
+#colnames(df_ISO_35) <- c("VPM_35_Iso", "LD_35_Iso", "PO_35_Iso")
+
+#plot.ts(df_ISO_35$VPM)
+
+MTSplot(df_ISO_35)
+
+```
+
+```{r}
+hurstexp(df_ISO_35$VPM)
+
+```
+
+```{r}
+
+
+hurstexp(df_ISO_35$LD)
+```
+
+```{r}
+
+hurstexp(df_ISO_35$PO)
+```
+
+```{r}
+VARorder(df_ISO_35)
+```
+
+```{r}
+model_ISO_35=VAR(df_ISO_35,p=13)
+
+serial.test(model_ISO_35)
+```
+
+```{r}
+causality(model_ISO_35,"VPM")
+causality(model_ISO_35,"LD")
+causality(model_ISO_35,"PO")
+```
+
+```{r}
+# Required libraries
+library(igraph)
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# From the provided results, we have the following significant edges:
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 40,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (35 ISO)",
+     layout = layout_in_circle)
+
+```
+
+```{r}
+# Load library
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (35 μA, ISO)"
+)
+```
+
+### Parameter 35 Recovery
+
+```{r}
+
+# Read the CSV file
+firing_param35_Recovery <- read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param35_Recovery.csv")
+
+# Create a new data frame with specific columns
+df_Recovery_35 <- data.frame(
+  VPM = firing_param35_Recovery$VPM,
+  LD = firing_param35_Recovery$LD,
+  PO = firing_param35_Recovery$PO
+)
+
+# Set column names explicitly if needed
+#colnames(df_ISO_35) <- c("VPM_35_Iso", "LD_35_Iso", "PO_35_Iso")
+
+#plot.ts(df_ISO_35$VPM)
+
+MTSplot(df_Recovery_35)
+
+```
+
+### Assessing the long term dependences
+
+```{r}
+
+hurstexp(df_Recovery_35$VPM)
+```
+
+```{r}
+
+hurstexp(df_Recovery_35$LD)
+```
+
+```{r}
+
+hurstexp(df_Recovery_35$PO)
+```
+
+```{r}
+VARorder(df_Recovery_35)
+```
+
+```{r}
+model_Recovery_35=VAR(df_Recovery_35,p=11)
+serial.test(model_Recovery_35)
+```
+
+```{r}
+causality(model_Recovery_35,"VPM")
+causality(model_Recovery_35,"LD")
+causality(model_Recovery_35,"PO")
+```
+
+```{r}
+# Required libraries
+library(igraph)
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# From the provided results, we have the following significant edges:
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 50,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (35 Recovery)",
+     layout = layout_in_circle)
+
+```
+
+```{r}
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (35 μA, Recovery)"
+)
+```
+
+### Parameter 60
+
+```{r}
+
+
+
+# Read the CSV file
+firing_param60_Awake <- read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param60_Awake.csv")
+
+# Create a new data frame with specific columns
+df_Awake_60 <- data.frame(
+  VPM = firing_param60_Awake$VPM,
+  LD = firing_param60_Awake$LD,
+  PO = firing_param60_Awake$PO
+)
+
+# Set column names explicitly if needed
+#colnames(df_ISO_35) <- c("VPM_35_Iso", "LD_35_Iso", "PO_35_Iso")
+
+#plot.ts(df_ISO_35$VPM)
+
+MTSplot(df_Awake_60)
+
+```
+
+```{r}
+hurstexp(df_Awake_60$VPM)
+```
+
+```{r}
+
+
+hurstexp(df_Awake_60$LD)
+```
+
+```{r}
+
+hurstexp(df_Awake_60$PO)
+```
+
+```{r}
+VARorder(df_Awake_60)
+```
+
+```{r}
+model_Awake_60=VAR(df_Awake_60,p=13)
+serial.test(model_Awake_60)
+
+causality(model_Awake_60,"VPM")
+causality(model_Awake_60,"LD")
+causality(model_Awake_60,"PO")
+```
+
+```{r}
+# Required libraries
+library(igraph)
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# From the provided results, we have the following significant edges:
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 50,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (60 Awake)",
+     layout = layout_in_circle)
+
+```
+
+```{r}
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (60 μA, Awake)"
+)
+```
+
+```{r}
+
+
+
+# Read the CSV file
+firing_param60_ISO <- read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param60_ISO.csv")
+
+# Create a new data frame with specific columns
+df_ISO_60 <- data.frame(
+  VPM = firing_param60_ISO$VPM,
+  LD = firing_param60_ISO$LD,
+  PO = firing_param60_ISO$PO
+)
+
+# Set column names explicitly if needed
+#colnames(df_ISO_35) <- c("VPM_35_Iso", "LD_35_Iso", "PO_35_Iso")
+
+#plot.ts(df_ISO_35$VPM)
+
+MTSplot(df_ISO_60)
+
+
+```
+
+```{r}
+hurstexp(df_ISO_60$VPM)
+
+
+```
+
+```{r}
+
+hurstexp(df_ISO_60$LD)
+```
+
+```{r}
+
+hurstexp(df_ISO_60$PO)
+```
+
+```{r}
+VARorder(df_ISO_60)
+```
+
+```{r}
+model_ISO_60=VAR(df_ISO_60,p=5)
+serial.test(model_ISO_60)
+
+
+causality(model_ISO_60,"VPM")
+causality(model_ISO_60,"LD")
+causality(model_ISO_60,"PO")
+```
+
+```{r}
+# Required libraries
+library(igraph)
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# From the provided results, we have the following significant edges:
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 50,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (60 ISO)",
+     layout = layout_in_circle)
+```
+
+```{r}
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (60 μA, ISO)"
+)
+```
+
+```{r}
+
+
+
+# Read the CSV file
+firing_param60_Recovery <- read.csv("F:/mydata/IIT_J/mtech/project/sourav sirs papers/Time series modelling of 100 sequences/data/firing_param60_Recovery.csv")
+
+# Create a new data frame with specific columns
+df_Recovery_60 <- data.frame(
+  VPM = firing_param60_Recovery$VPM,
+  LD = firing_param60_Recovery$LD,
+  PO = firing_param60_Recovery$PO
+)
+
+# Set column names explicitly if needed
+#colnames(df_ISO_35) <- c("VPM_35_Iso", "LD_35_Iso", "PO_35_Iso")
+
+#plot.ts(df_ISO_35$VPM)
+
+MTSplot(df_Recovery_60)
+
+
+```
+
+```{r}
+hurstexp(df_Recovery_60$VPM)
+
+
+hurstexp(df_Recovery_60$LD)
+
+hurstexp(df_Recovery_60$PO)
+
+
+
+```
+
+```{r}
+VARorder(df_Recovery_60)
+```
+
+```{r}
+model_Recovery_60=VAR(df_Recovery_60,p=13)
+serial.test(model_Recovery_60)
+
+
+causality(model_Recovery_60,"VPM")
+causality(model_Recovery_60,"LD")
+causality(model_Recovery_60,"PO")
+```
+
+```{r}
+
+# Define nodes
+nodes <- c("VPM", "LD", "PO")
+
+# Define edges with significant Granger causality (p < 0.05)
+# From the provided results, we have the following significant edges:
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create a directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Plot the graph
+plot(g,
+     vertex.size = 50,
+     vertex.label.cex = 1.2,
+     vertex.color = "lightblue",
+     edge.arrow.size = 0.6,
+     main = "Granger Causality Network (60 Recovery)",
+     layout = layout_in_circle)
+```
+
+```{r}
+library(igraph)
+
+# Define nodes and edges
+nodes <- c("VPM", "LD", "PO")
+edges <- c(
+  "VPM", "LD",  # VPM Granger-causes LD
+  "VPM", "PO",  # VPM Granger-causes PO
+  "LD", "VPM",  # LD Granger-causes VPM
+  "LD", "PO",   # LD Granger-causes PO
+  "PO", "VPM",  # PO Granger-causes VPM
+  "PO", "LD"    # PO Granger-causes LD
+)
+
+# Create directed graph
+g <- graph_from_edgelist(matrix(edges, ncol = 2, byrow = TRUE), directed = TRUE)
+
+# Define colors for clarity
+vertex_colors <- c("VPM" = "#66c2a5", "LD" = "#fc8d62", "PO" = "#8da0cb")
+edge_colors <- rep("gray30", ecount(g))
+
+# Plot graph with enhancements
+plot(g,
+     vertex.size = 60,
+     vertex.label.cex = 1.4,
+     vertex.label.color = "black",
+     vertex.color = vertex_colors[V(g)$name],
+     edge.arrow.size = 0.9,
+     edge.width = 2.5,
+     edge.color = edge_colors,
+     layout = layout_in_circle,
+     main = "Granger Causality Network (60 μA, Recovery)"
+)
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
